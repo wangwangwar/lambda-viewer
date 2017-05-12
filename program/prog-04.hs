@@ -30,3 +30,13 @@ char f _           = []
 variable2 s = [ (V [c1,c2], s2) 
               | (c1, s1) <- char isAlpha s 
               , (c2, s2) <- char isAlpha s1 ]
+
+
+main = do
+  print $ variable ""
+  print $ variable "a"
+  print $ variable "123"
+  print $ variable "abc"
+  print $ variable2 ""
+  print $ variable2 "a"
+  print $ variable2 "abc"
