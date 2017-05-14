@@ -105,6 +105,9 @@ readR = mapP f readRationalStr
 readRationalStr :: ReadS ((Char, Integer), Maybe (Char, Integer))
 readRationalStr = char (\x -> [x] =~ "[+-]") &&& num &&& mayb (char (== '%') &&& num)
 
+-- 三、上一节讲到 ReadS a 的类型可以表达多个识别值，但以上定义的 <|> 和 ||| 的组合方式只能
+-- 返回其中一个分支的可能性。应该如何定义 <|> 或者 ||| 让它们能够返回两个分支的所有可能性呢？
+
 main = do
   print $ char (== 'a') "a"
   print $ variable "ab"
