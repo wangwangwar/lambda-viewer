@@ -1,12 +1,12 @@
 -- Program that goes with "Learn You a Lambda, a Haskell Tutorial", Chapter 7.
 --
--- You can base your solution either on this file, or on your previous solution 
+-- You can base your solution either on this file, or on your previous solution
 -- for Chapter 6, assuming you have an improved parser for lambda terms.
 
-import Data.Char
-import Control.Applicative hiding (many, (<|>))
-import Test.QuickCheck
-import Data.List (intersect)
+import           Control.Applicative hiding (many, (<|>))
+import           Data.Char
+import           Data.List           (intersect)
+import           Test.QuickCheck
 
 -- Datatype definition for lambda expression.
 data Term = Var Var | Lam Var Term | App Term Term deriving Eq
@@ -24,11 +24,11 @@ instance Show Term where
 -- Pretty-print that minimizes the number of parentheses.
 -- (solution to problem 2 in tutorial 3)
 pretty = snd . fold i g h
-  where 
+  where
     i (V v)       = (either id id, v)
     g (V v) (_,e) = (either pr pr, "λ" ++ v ++ "." ++ e)
     h (b,f) (d,e) = (either id pr, b (Left f) ++ " " ++ d (Right e))
-    pr s = "(" ++ s ++ ")" 
+    pr s = "(" ++ s ++ ")"
 
 -- Generic fold on Term, used by pretty.
 fold :: (Var -> a) -> (Var -> a -> a) -> (a -> a -> a) -> Term -> a
@@ -50,8 +50,8 @@ mapP :: (a -> b) -> ReadS a -> ReadS b
 mapP f g = map (\ (c, s) -> (f c, s)) . g
 
 (&&&) :: ReadS a -> ReadS b -> ReadS (a, b)
-f &&& g = \s -> [ ((x, y), s2) 
-                | (x, s1) <- f s, 
+f &&& g = \s -> [ ((x, y), s2)
+                | (x, s1) <- f s,
                   (y, s2) <- g s1 ]
 
 (|||) :: ReadS a -> ReadS b -> ReadS (Either a b)
@@ -74,10 +74,10 @@ paren p = mapP f (sym '(' &&& p &&& sym ')')
 
 -- Read instance for Var and Term.
 instance Read Var where
-  readsPrec _ = variable 
+  readsPrec _ = variable
 
 instance Read Term where
-  readsPrec _ = term 
+  readsPrec _ = term
 
 -- Parser for variables that start with lowercase letter,
 -- and optionally followed by a number.
@@ -102,7 +102,7 @@ lbd = (sym '\\' <|> sym 'λ')
 sym = char . (==)
 
 space = many1 (sym ' ')
- 
+
 -- Randomly generate Var and Term for QuickCheck.
 instance Arbitrary Var where
   -- use a limited range to increase chances for variable re-use
@@ -128,10 +128,10 @@ propAlpha i j e = nlam == 0 || (testEq e e1 && testEq e1 e) &&
     testEq e e' = alphaEq e e' || error ("Expect True, but alphaEq (" ++ show e ++ ") (" ++ show e' ++ ") is False")
     testNEq e e' = not (alphaEq e e') || error ("Expect False, but alphaEq (" ++ show e ++ ") (" ++ show e' ++ ") is True")
     -- count the number of lambdas
-    nlam = fold (\_ -> 0) (\_ _ -> 1) (+) e 
+    nlam = fold (\_ -> 0) (\_ _ -> 1) (+) e
     n = abs i `mod` nlam
     navigate i f e@(Lam v e') = if i == n then Left (e, f) else navigate (i + 1) (f . Lam v) e'
-    navigate i f e@(App e1 e2) = 
+    navigate i f e@(App e1 e2) =
       case navigate i (f . flip App e2) e1 of
         Right i' -> navigate i' (f . App e1) e2
         r -> r
@@ -164,13 +164,13 @@ allVars = map V (map (:[]) atoz ++ [ v : show m | v <- atoz, m <- [0..]])
 
 -- Bounded variable set
 boundVars :: Term -> [Var]
-boundVars = fold (\_ -> []) (:) (++) 
+boundVars = fold (\_ -> []) (:) (++)
 
 -- Free variable set
 freeVars :: Term -> [Var]
 freeVars = aux []
   where
-    aux env (Var v) | elem v env = [] 
+    aux env (Var v) | elem v env = []
                     | otherwise  = [v]
     aux env (Lam v e) = aux (v:env) e
     aux env (App f e) = aux env f ++ aux env e
@@ -182,16 +182,39 @@ subV u w (Var v)   | v == u    = Var w
                    | otherwise = Var v
 subV u w (Lam v e) | v == u    = Lam v e
                    | otherwise = Lam v (subV u w e)
-subV u w (App f e) = App (subV u w f) 
+subV u w (App f e) = App (subV u w f)
                          (subV u w e)
- 
+
 
 -- ===========================================================
 -- You may modify the function below to complete the assignment.
 -- ===========================================================
 
+-- 三、判断以下的λ项是否为α等价？实现一个函数 alphaEq :: Term -> Term -> Bool 来完成这件事。
 alphaEq :: Term -> Term -> Bool
-alphaEq e e' = True 
+alphaEq (Var v) (Var v') = v == v'
+alphaEq (Lam v e) (Lam v' e') | v == v' = alphaEq e e'
+                              | otherwise = alphaEq newE newE'
+                                where
+                                  (newVar:_) = [x | x <- allVars,
+                                                    x `notElem` freeVars (Lam v e),
+                                                    x `notElem` boundVars (Lam v e),
+                                                    x `notElem` freeVars (Lam v' e'),
+                                                    x `notElem` boundVars (Lam v' e')]
+                                  newE = if v `elem` boundVars (Lam v e)
+                                    then subV v newVar e
+                                    else e
+                                  newE' = if v' `elem` boundVars (Lam v' e')
+                                    then subV v' newVar e'
+                                    else e'
+alphaEq (App f e) (App f' e') = alphaEq f f' && alphaEq e e'
+
+-- 四、在本章给出的α变换的定义中，我们注意到有一个条件就是要替换为“新”
+-- （也即原λ项中没有出现过）的变元，实际上这个条件其实过于严格（充分非必要），什么才是一个恰到好处的（充要）条件呢？
+--
+-- A: 充要条件为，替换为绑定的作用范围内没有出现过的变元，这个范围比整个λ项的范围小。如：
+-- `(λx.y x) w` => `(λw.y w) w`
 
 -- You may test the correctness of your implementation with the following:
--- main = quickCheck propAlpha
+main =
+  quickCheck propAlpha
