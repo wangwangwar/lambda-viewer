@@ -1,12 +1,13 @@
 -- Program that goes with "Learn You a Lambda, a Haskell Tutorial", Chapter 8.
 --
--- You can base your solution either on this file, or on your previous solution 
+-- You can base your solution either on this file, or on your previous solution
 -- for Chapter 7, assuming you have an improved parser for lambda terms.
 
-import Data.Char
-import Control.Applicative hiding (many, (<|>))
-import Test.QuickCheck
-import Data.List (intersect)
+import           Control.Applicative hiding (many, (*>), (<*), (<|>))
+import           Data.Char
+import           Data.List           (intersect)
+import           Prelude             hiding ((*>), (<*))
+import           Test.QuickCheck
 
 -- Datatype definition for lambda expression.
 data Term = Var Var | Lam Var Term | App Term Term deriving Eq
@@ -24,11 +25,11 @@ instance Show Term where
 -- Pretty-print that minimizes the number of parentheses.
 -- (solution to problem 2 in tutorial 3)
 pretty = snd . fold i g h
-  where 
+  where
     i (V v)       = (either id id, v)
     g (V v) (_,e) = (either pr pr, "λ" ++ v ++ "." ++ e)
     h (b,f) (d,e) = (either id pr, b (Left f) ++ " " ++ d (Right e))
-    pr s = "(" ++ s ++ ")" 
+    pr s = "(" ++ s ++ ")"
 
 -- Generic fold on Term, used by pretty.
 fold :: (Var -> a) -> (Var -> a -> a) -> (a -> a -> a) -> Term -> a
@@ -50,12 +51,14 @@ mapP :: (a -> b) -> ReadS a -> ReadS b
 mapP f g = map (\ (c, s) -> (f c, s)) . g
 
 (&&&) :: ReadS a -> ReadS b -> ReadS (a, b)
-f &&& g = \s -> [ ((x, y), s2) 
-                | (x, s1) <- f s, 
+f &&& g = \s -> [ ((x, y), s2)
+                | (x, s1) <- f s,
                   (y, s2) <- g s1 ]
 
 (|||) :: ReadS a -> ReadS b -> ReadS (Either a b)
-f ||| g = \s -> map left (f s) ++ map right (g s)
+f ||| g = \s -> case f s of
+                  [] -> map right (g s)
+                  xs -> map left xs
   where left  (x, s) = (Left  x, s)
         right (y, s) = (Right y, s)
 
@@ -69,15 +72,20 @@ many r  = many1 r <|> nil
 many1 r = mapP cons (r &&& many r)
   where cons (x, xs) = x : xs
 
-paren p = mapP f (sym '(' &&& p &&& sym ')')
-  where f ((_, x), _) = x
+(<*) :: ReadS a -> ReadS b -> ReadS a
+f <* g = mapP (\(a, _) -> a) $ f &&& g
+
+(*>) :: ReadS a -> ReadS b -> ReadS b
+f *> g = mapP (\(_, b) -> b) $ f &&& g
+
+paren p = sym '(' *> (space ||| nil) *> p <* (space ||| nil) <* sym ')'
 
 -- Read instance for Var and Term.
 instance Read Var where
-  readsPrec _ = variable 
+  readsPrec _ = variable
 
 instance Read Term where
-  readsPrec _ = term 
+  readsPrec _ = term
 
 -- Parser for variables that start with lowercase letter,
 -- and optionally followed by a number.
@@ -94,7 +102,10 @@ atom  = lam <|> var <|> paren term
 
 var = mapP Var variable
 
-lam = mapP f (lbd &&& variable &&& sym '.' &&& term)
+--lam = mapP f (lbd &&& variable &&& sym '.' &&& term)
+ --  where f (((_, v), _), e) = Lam v e
+
+lam = mapP f (lbd &&& ((space ||| nil) *> variable <* (space ||| nil)) &&& sym '.' &&& ((space ||| nil) *> term))
    where f (((_, v), _), e) = Lam v e
 
 lbd = (sym '\\' <|> sym 'λ')
@@ -102,7 +113,7 @@ lbd = (sym '\\' <|> sym 'λ')
 sym = char . (==)
 
 space = many1 (sym ' ')
- 
+
 -- Randomly generate Var and Term for QuickCheck.
 instance Arbitrary Var where
   -- use a limited range to increase chances for variable re-use
@@ -121,7 +132,7 @@ instance Arbitrary Term where
 freeVars :: Term -> [Var]
 freeVars = aux []
   where
-    aux env (Var v) | elem v env = [] 
+    aux env (Var v) | elem v env = []
                     | otherwise  = [v]
     aux env (Lam v e) = aux (v:env) e
     aux env (App f e) = aux env f ++ aux env e
@@ -133,14 +144,14 @@ subV u w (Var v)   | v == u    = Var w
                    | otherwise = Var v
 subV u w (Lam v e) | v == u    = Lam v e
                    | otherwise = Lam v (subV u w e)
-subV u w (App f e) = App (subV u w f) 
+subV u w (App f e) = App (subV u w f)
                          (subV u w e)
 
--- Substitute a free variable by a term 
+-- Substitute a free variable by a term
 subT :: Var -> Term -> Term -> Term
 subT u w (Var v)   | v == u    = w
                    | otherwise = Var v
-subT u w (App f e) = App (subT u w f) 
+subT u w (App f e) = App (subT u w f)
                          (subT u w e)
 subT u w (Lam v e)
      | v == u    = Lam v e
@@ -159,20 +170,40 @@ beta e = error ("Term " ++ show e ++ " is not a beta redex")
 -- ===========================================================
 -- You may modify functions below to complete the assignment.
 --
--- You may also use alphaEq from prog-07.hs to help check the 
+-- You may also use alphaEq from prog-07.hs to help check the
 -- correctness of subT.
 -- ===========================================================
 
 -- Bounded variable set
 boundVars :: Term -> [Var]
-boundVars e = undefined
+boundVars = fold (\_ -> []) (:) (++)
 
 freshVar :: [Var] -> Var
-freshVar fvs = undefined
+freshVar fvs = x
+  where
+    (x:_) = [x | x <- allVars, x `notElem` fvs]
+    atoz = ['a' .. 'z']
+    allVars = map V (map (:[]) atoz ++ [ v : show m | v <- atoz, m <- [0..]])
 
 redexes :: Term -> [Term]
-redexes e = undefined
+redexes (App (Lam v e) e') = (App (Lam v e) e'):redexes e ++ redexes e'
+redexes (App (Var v) (Var v')) = redexes (Var v) ++ redexes (Var v')
+redexes (App e e') = redexes e ++ redexes e'
+redexes (Lam v e) = redexes e
+redexes _ = []
 
 reduce :: Term -> Term
-reduce e = undefined
+reduce (App (Lam v e) e') = reduce $ subT v (reduce e') (reduce e)
+reduce (App (Var v) (Var v')) = App (Var v) (Var v')
+reduce (App e e') = reduce $ App (reduce e) (reduce e')
+reduce (Lam v e) = Lam v (reduce e)
+reduce e = e
 
+main = do
+  print $ reduce (read "(λx.(λy.λz.z y) x) p (λx.x)" :: Term)
+
+-- (λx.(λy.λz.z y) x) p (λx.x)
+-- ((λy.λz.z y) p) (λx.x)
+-- (λz.z p) (λx.x)
+-- (λx.x) p
+-- p
